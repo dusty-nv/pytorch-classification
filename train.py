@@ -1,3 +1,10 @@
+#
+# Note -- this training script is tweaked from the original at:
+#           https://github.com/pytorch/examples/tree/master/imagenet
+#
+# For a step-by-step guide to transfer learning with PyTorch, see:
+#           https://pytorch.org/tutorials/beginner/finetuning_torchvision_models_tutorial.html
+#
 import argparse
 import os
 import random
@@ -18,13 +25,20 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
+from torchvision.models.googlenet import InceptionAux
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
 
+#
+# parse command-line arguments
+#
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
+parser.add_argument('--model-path', type=str, default='', help="path to output directory to save model checkpoints")
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     choices=model_names,
                     help='model architecture: ' +
@@ -32,7 +46,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                         ' (default: resnet18)')
 parser.add_argument('-j', '--workers', default=1, type=int, metavar='N',
                     help='number of data loading workers (default: 1)')
-parser.add_argument('--epochs', default=10, type=int, metavar='N',
+parser.add_argument('--epochs', default=25, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
@@ -77,6 +91,9 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 best_acc1 = 0
 
 
+#
+# initiate worker threads (if using distributed multi-GPU)
+#
 def main():
     args = parser.parse_args()
 
@@ -90,9 +107,9 @@ def main():
                       'You may see unexpected behavior when restarting '
                       'from checkpoints.')
 
-    if args.gpu is not None:
-        warnings.warn('You have chosen a specific GPU. This will completely '
-                      'disable data parallelism.')
+    #if args.gpu is not None:
+    #    warnings.warn('You have chosen a specific GPU. This will completely '
+    #                  'disable data parallelism.')
 
     if args.dist_url == "env://" and args.world_size == -1:
         args.world_size = int(os.environ["WORLD_SIZE"])
@@ -100,6 +117,7 @@ def main():
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
 
     ngpus_per_node = torch.cuda.device_count()
+
     if args.multiprocessing_distributed:
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
@@ -112,6 +130,9 @@ def main():
         main_worker(args.gpu, ngpus_per_node, args)
 
 
+#
+# worker thread (per-GPU)
+#
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.gpu = gpu
@@ -128,13 +149,47 @@ def main_worker(gpu, ngpus_per_node, args):
             args.rank = args.rank * ngpus_per_node + gpu
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size, rank=args.rank)
-    # create model
-    if args.pretrained:
-        print("=> using pre-trained model '{}'".format(args.arch))
-        model = models.__dict__[args.arch](pretrained=True)
+
+    # Data loading code
+    traindir = os.path.join(args.data, 'train')
+    valdir = os.path.join(args.data, 'val')
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+
+    train_dataset = datasets.ImageFolder(
+        traindir,
+        transforms.Compose([
+            #transforms.Resize(224),
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            normalize,
+        ]))
+
+    num_classes = len(train_dataset.classes)
+    print('=> Dataset classes:  ' + str(num_classes) + ' ' + str(train_dataset.classes))
+
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     else:
-        print("=> creating model '{}'".format(args.arch))
-        model = models.__dict__[args.arch]()
+        train_sampler = None
+
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
+        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+
+    val_loader = torch.utils.data.DataLoader(
+        datasets.ImageFolder(valdir, transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            normalize,
+        ])),
+        batch_size=args.batch_size, shuffle=False,
+        num_workers=args.workers, pin_memory=True)
+
+    # load and reshape the model
+    model = create_model(args, num_classes)
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
@@ -191,48 +246,17 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    # Data loading code
-    traindir = os.path.join(args.data, 'train')
-    valdir = os.path.join(args.data, 'val')
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-
-    train_dataset = datasets.ImageFolder(
-        traindir,
-        transforms.Compose([
-            transforms.Resize(224),
-            #transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ]))
-
-    if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    else:
-        train_sampler = None
-
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
-        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-
-    val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True)
-
+    # if in evaluation mode, only run validation
     if args.evaluate:
         validate(val_loader, model, criterion, args)
         return
 
+    # train for the specified number of epochs
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
+
+        # decay the learning rate
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
@@ -253,9 +277,12 @@ def main_worker(gpu, ngpus_per_node, args):
                 'state_dict': model.state_dict(),
                 'best_acc1': best_acc1,
                 'optimizer' : optimizer.state_dict(),
-            }, is_best)
+            }, is_best, args)
 
 
+#
+# train one epoch
+#
 def train(train_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
@@ -270,7 +297,10 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     # switch to train mode
     model.train()
 
+    # get the start time
     end = time.time()
+
+    # train over each image batch from the dataset
     for i, (images, target) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -302,6 +332,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             progress.display(i)
 
 
+#
+# measure model performance across the val dataset
+#
 def validate(val_loader, model, criterion, args):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -346,12 +379,83 @@ def validate(val_loader, model, criterion, args):
     return top1.avg
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+#
+# save model checkpoint
+#
+def save_checkpoint(state, is_best, args, filename='checkpoint.pth.tar'):
+    model_path = os.path.expanduser(args.model_path)
+
+    if not os.path.exists(model_path):
+        os.mkdir(model_path)
+
+    filename = os.path.join(model_path, filename)
+
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
+        shutil.copyfile(filename, os.path.join(model_path, 'model_best.pth.tar'))
 
 
+#
+# load and reshape the model
+#
+def create_model(args, num_classes):
+	# if pre-trained model is requested, download it
+	if args.pretrained:
+		print("=> using pre-trained model '{}'".format(args.arch))
+		model = models.__dict__[args.arch](pretrained=True)
+	else:
+		print("=> creating model '{}'".format(args.arch))
+		model = models.__dict__[args.arch]()
+
+	# reshape output layers for the dataset
+	if args.arch.startswith("resnet"):
+		model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+		print("=> reshaped ResNet fully-connected layer with: " + str(model.fc))
+
+	elif args.arch.startswith("alexnet"):
+		model.classifier[6] = torch.nn.Linear(model.classifier[6].in_features, num_classes)
+		print("=> reshaped AlexNet classifier layer with: " + str(model.classifier[6]))
+
+	elif args.arch.startswith("vgg"):
+		model.classifier[6] = torch.nn.Linear(model.classifier[6].in_features, num_classes)
+		print("=> reshaped VGG classifier layer with: " + str(model.classifier[6]))
+
+	elif args.arch.startswith("squeezenet"):
+		model.classifier[1] = torch.nn.Conv2d(512, num_classes, kernel_size=(1,1), stride=(1,1))
+		model.num_classes = num_classes
+		print("=> reshaped SqueezeNet classifier layer with: " + str(model.classifier[1]))
+
+	elif args.arch.startswith("densenet"):
+		model.classifier = torch.nn.Linear(model.classifier.in_features, num_classes) 
+		print("=> reshaped DenseNet classifier layer with: " + str(model.classifier))
+
+	elif args.arch.startswith("inception"):
+		model.AuxLogits.fc = torch.nn.Linear(model.AuxLogits.fc.in_features, num_classes)
+		model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+		print("=> reshaped Inception aux-logits layer with: " + str(model.AuxLogits.fc))
+		print("=> reshaped Inception fully-connected layer with: " + str(model.fc))
+	
+	elif args.arch.startswith("googlenet"):
+		if model.aux_logits:
+			model.aux1 = InceptionAux(512, num_classes)
+			model.aux2 = InceptionAux(528, num_classes)
+			print("=> reshaped GoogleNet aux-logits layers with: ")
+			print("      " + str(model.aux1))
+			print("      " + str(model.aux2))
+	
+		model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+		print("=> reshaped GoogleNet fully-connected layer with: " + str(model.fc))
+	
+	else:
+		print("classifier reshaping not supported for " + args.arch)
+		print("model will retain default of 1000 output classes")
+
+	return model
+
+
+#
+# statistic averaging
+#
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self, name, fmt=':f'):
@@ -376,6 +480,9 @@ class AverageMeter(object):
         return fmtstr.format(**self.__dict__)
 
 
+#
+# progress metering
+#
 class ProgressMeter(object):
     def __init__(self, num_batches, meters, prefix=""):
         self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
@@ -393,6 +500,9 @@ class ProgressMeter(object):
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 
+#
+# learning rate decay
+#
 def adjust_learning_rate(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     lr = args.lr * (0.1 ** (epoch // 30))
@@ -400,6 +510,9 @@ def adjust_learning_rate(optimizer, epoch, args):
         param_group['lr'] = lr
 
 
+#
+# compute the accuracy for a given result
+#
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
     with torch.no_grad():
