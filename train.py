@@ -25,8 +25,6 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
-from torchvision.models.googlenet import InceptionAux
-
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -167,7 +165,7 @@ def main_worker(gpu, ngpus_per_node, args):
         ]))
 
     num_classes = len(train_dataset.classes)
-    print('=> Dataset classes:  ' + str(num_classes) + ' ' + str(train_dataset.classes))
+    print('=> dataset classes:  ' + str(num_classes) + ' ' + str(train_dataset.classes))
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -443,13 +441,17 @@ def create_model(args, num_classes):
 	elif args.arch.startswith("inception"):
 		model.AuxLogits.fc = torch.nn.Linear(model.AuxLogits.fc.in_features, num_classes)
 		model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+
 		print("=> reshaped Inception aux-logits layer with: " + str(model.AuxLogits.fc))
 		print("=> reshaped Inception fully-connected layer with: " + str(model.fc))
 	
 	elif args.arch.startswith("googlenet"):
 		if model.aux_logits:
+			from torchvision.models.googlenet import InceptionAux
+
 			model.aux1 = InceptionAux(512, num_classes)
 			model.aux2 = InceptionAux(528, num_classes)
+
 			print("=> reshaped GoogleNet aux-logits layers with: ")
 			print("      " + str(model.aux1))
 			print("      " + str(model.aux2))
