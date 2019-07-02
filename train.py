@@ -38,7 +38,7 @@ parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
-parser.add_argument('--model-path', type=str, default='', help="path to output directory to save model checkpoints")
+parser.add_argument('--output-path', type=str, default='', help="path to output directory to save model checkpoints")
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     choices=model_names,
                     help='model architecture: ' +
@@ -383,17 +383,28 @@ def validate(val_loader, model, criterion, args):
 # save model checkpoint
 #
 def save_checkpoint(state, is_best, args, filename='checkpoint.pth.tar'):
-    model_path = os.path.expanduser(args.model_path)
 
-    if not os.path.exists(model_path):
-        os.mkdir(model_path)
+    best_filename = 'model_best.pth.tar'
 
-    filename = os.path.join(model_path, filename)
+    # if saving to an output directory, make sure it exists
+    if args.output_path:
+        model_path = os.path.expanduser(args.output_path)
 
+        if not os.path.exists(model_path):
+            os.mkdir(model_path)
+
+        filename = os.path.join(model_path, filename)
+        best_filename = os.path.join(model_path, best_filename)
+
+    # save the checkpoint
     torch.save(state, filename)
-    if is_best:
-        shutil.copyfile(filename, os.path.join(model_path, 'model_best.pth.tar'))
 
+    # earmark the best checkpoint
+    if is_best:
+        shutil.copyfile(filename, best_filename)
+        print("saved best model to:  " + best_filename)
+    else:
+        print("saved checkpoint to:  " + filename)
 
 #
 # load and reshape the model
@@ -444,7 +455,7 @@ def create_model(args, num_classes):
 			print("      " + str(model.aux2))
 	
 		model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-		print("=> reshaped GoogleNet fully-connected layer with: " + str(model.fc))
+		print("=> reshaped GoogleNet fully-connected layer with:  " + str(model.fc))
 	
 	else:
 		print("classifier reshaping not supported for " + args.arch)
