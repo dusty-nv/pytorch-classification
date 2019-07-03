@@ -1,5 +1,7 @@
 # 
-# before running this script, install the following:
+# Check that an ONNX model is valid and well-formed.
+#
+# Before running this script, install the following:
 #
 #    $ sudo apt-get install protobuf-compiler libprotoc-dev
 #    $ pip install onnx

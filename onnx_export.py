@@ -1,66 +1,78 @@
+#
+# converts a saved PyTorch model to ONNX format
+# 
+import os
 import argparse
+
 import torch
 import torchvision.models as models
-
-from PIL import Image
-from torchvision.transforms import ToTensor
-
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
 
-
-# exporter settings
+# parse command line
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_in', type=str, default='model_best.pth.tar', help="name of input PyTorch model (default: model_best.pth.tar)")
-parser.add_argument('--model_out', type=str, default='', help="name of output ONNX model (default: <ARCH>.onnx)")
-parser.add_argument('--input_width', type=int, default=224, help="resolution of input image expected by the model (default: 224)")
-parser.add_argument('--input_height', type=int, default=224, help="resolution of input image expected by the model (default: 224)")
-#parser.add_argument('--image', type=str, required=True, help='example input image to use')
-parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                    choices=model_names,
-                    help='model architecture: ' +
-                        ' | '.join(model_names) +
-                        ' (default: resnet18)')
+parser.add_argument('--input', type=str, default='model_best.pth.tar', help="path to input PyTorch model (default: model_best.pth.tar)")
+parser.add_argument('--output', type=str, default='', help="desired path of converted ONNX model (default: <ARCH>.onnx)")
+parser.add_argument('--model-dir', type=str, default='', help="directory to look for the input PyTorch model in, and export the converted ONNX model to (if --output doesn't specify a directory)")
+parser.add_argument('--no-softmax', type=bool, default=False, help="disable adding nn.Softmax layer to model (default is to add Softmax)")
 
 opt = parser.parse_args() 
 print(opt)
 
-if not opt.model_out:
-	opt.model_out = opt.arch + '.onnx'
+# generate default model name
+if not opt.output:
+	opt.output = opt.arch + '.onnx'
+
+# format model paths for directories
+if opt.model_dir:
+	opt.model_dir = os.path.expanduser(opt.model_dir)
+	opt.input = os.path.join(opt.model_dir, opt.input)
+
+	if opt.output.find('/') == -1 and opt.output.find('\\') == -1:
+		opt.output = os.path.join(opt.model_dir, opt.output)
 
 # set the device
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print('running on device ' + str(device))
 
+# load the model checkpoint
+print('loading checkpoint:  ' + opt.input)
+checkpoint = torch.load(opt.input)
+arch = checkpoint['arch']
 
-# create example image data
-input = torch.ones((1, 3, opt.input_height, opt.input_width)).cuda()
-#img = Image.open(opt.image)
-#img_to_tensor = ToTensor()
-#input = img_to_tensor(img).view(1, -1, img.size[1], img.size[0]).to(device)
+# create the model architecture
+print('using model:  ' + arch)
+model = models.__dict__[arch](pretrained=True)
 
-print('input image size {:d}x{:d}'.format(opt.input_width, opt.input_height))
-
-
-# load the model
-#print(torch.load(opt.model_in))
-print('using model: ' + opt.arch)
-model = models.__dict__[opt.arch](pretrained=True)
-print('loading checkpoint: ' + opt.model_in)
-checkpoint = torch.load(opt.model_in)
+# load the model weights
 model.load_state_dict(checkpoint['state_dict'])
+
+# reshape the model's output
+model = reshape_model(model, arch, checkpoint['num_classes'])
+
+# add softmax layer
+if not opt.no_softmax:
+	print('adding nn.Softmax layer to model...')
+	model = torch.nn.Sequential(model, torch.nn.Softmax(1))
+
 model.to(device)
 model.eval()
+
 print(model)
 
+# create example image data
+resolution = checkpoint['resolution']
+input = torch.ones((1, 3, resolution, resolution)).cuda()
+print('input size:  {:d}x{:d}'.format(resolution, resolution))
 
 # export the model
 input_names = [ "input_0" ]
 output_names = [ "output_0" ]
 
 print('exporting model to ONNX...')
-torch.onnx.export(model, input, opt.model_out, verbose=True, input_names=input_names, output_names=output_names)
-print('model exported to {:s}'.format(opt.model_out))
+torch.onnx.export(model, input, opt.output, verbose=True, input_names=input_names, output_names=output_names)
+print('model exported to:  {:s}'.format(opt.output))
+
 
