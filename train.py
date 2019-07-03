@@ -38,7 +38,7 @@ parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
-parser.add_argument('--output-dir', type=str, default='', 
+parser.add_argument('--model-dir', type=str, default='', 
 				help='path to desired output directory for saving model '
 					'checkpoints (default: current directory)')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
@@ -405,8 +405,8 @@ def save_checkpoint(state, is_best, args, filename='checkpoint.pth.tar', best_fi
     """Save a model checkpoint file, along with the best-performing model if applicable"""
 
     # if saving to an output directory, make sure it exists
-    if args.output_dir:
-        model_path = os.path.expanduser(args.output_dir)
+    if args.model_dir:
+        model_path = os.path.expanduser(args.model_dir)
 
         if not os.path.exists(model_path):
             os.mkdir(model_path)
