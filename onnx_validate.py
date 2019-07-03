@@ -11,7 +11,7 @@ import argparse
 import sys
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model', type=str, default='resnet18.onnx')
+parser.add_argument('model', type=str, default='resnet18.onnx', help='path to ONNX model to validate')
 args = parser.parse_args(sys.argv[1:])
 
 # Load the ONNX model

@@ -7,6 +7,8 @@ import argparse
 import torch
 import torchvision.models as models
 
+from reshape import reshape_model
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -21,17 +23,10 @@ parser.add_argument('--no-softmax', type=bool, default=False, help="disable addi
 opt = parser.parse_args() 
 print(opt)
 
-# generate default model name
-if not opt.output:
-	opt.output = opt.arch + '.onnx'
-
-# format model paths for directories
+# format input model path
 if opt.model_dir:
 	opt.model_dir = os.path.expanduser(opt.model_dir)
 	opt.input = os.path.join(opt.model_dir, opt.input)
-
-	if opt.output.find('/') == -1 and opt.output.find('\\') == -1:
-		opt.output = os.path.join(opt.model_dir, opt.output)
 
 # set the device
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -46,11 +41,11 @@ arch = checkpoint['arch']
 print('using model:  ' + arch)
 model = models.__dict__[arch](pretrained=True)
 
-# load the model weights
-model.load_state_dict(checkpoint['state_dict'])
-
 # reshape the model's output
 model = reshape_model(model, arch, checkpoint['num_classes'])
+
+# load the model weights
+model.load_state_dict(checkpoint['state_dict'])
 
 # add softmax layer
 if not opt.no_softmax:
@@ -66,6 +61,13 @@ print(model)
 resolution = checkpoint['resolution']
 input = torch.ones((1, 3, resolution, resolution)).cuda()
 print('input size:  {:d}x{:d}'.format(resolution, resolution))
+
+# format output model path
+if not opt.output:
+	opt.output = arch + '.onnx'
+
+if opt.model_dir and opt.output.find('/') == -1 and opt.output.find('\\') == -1:
+	opt.output = os.path.join(opt.model_dir, opt.output)
 
 # export the model
 input_names = [ "input_0" ]
