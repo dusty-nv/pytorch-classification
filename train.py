@@ -25,6 +25,8 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
+from reshape import reshape_model
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -36,14 +38,19 @@ parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
-parser.add_argument('--output-path', type=str, default='', help="path to output directory to save model checkpoints")
+parser.add_argument('--output-dir', type=str, default='', 
+				help='path to desired output directory for saving model '
+					'checkpoints (default: current directory)')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     choices=model_names,
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet18)')
-parser.add_argument('-j', '--workers', default=1, type=int, metavar='N',
-                    help='number of data loading workers (default: 1)')
+parser.add_argument('--resolution', default=224, type=int, metavar='N',
+                    help='input NxN image resolution of model (default: 224x224) '
+                         'note than Inception models should use 299x299')
+parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
+                    help='number of data loading workers (default: 2)')
 parser.add_argument('--epochs', default=25, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
@@ -148,7 +155,7 @@ def main_worker(gpu, ngpus_per_node, args):
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size, rank=args.rank)
 
-    # Data loading code
+    # data loading code
     traindir = os.path.join(args.data, 'train')
     valdir = os.path.join(args.data, 'val')
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -158,7 +165,7 @@ def main_worker(gpu, ngpus_per_node, args):
         traindir,
         transforms.Compose([
             #transforms.Resize(224),
-            transforms.RandomResizedCrop(224),
+            transforms.RandomResizedCrop(args.resolution),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize,
@@ -179,16 +186,25 @@ def main_worker(gpu, ngpus_per_node, args):
     val_loader = torch.utils.data.DataLoader(
         datasets.ImageFolder(valdir, transforms.Compose([
             transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.CenterCrop(args.resolution),
             transforms.ToTensor(),
             normalize,
         ])),
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
-    # load and reshape the model
-    model = create_model(args, num_classes)
+    # create or load the model if using pre-trained (the default)
+    if args.pretrained:
+        print("=> using pre-trained model '{}'".format(args.arch))
+        model = models.__dict__[args.arch](pretrained=True)
+    else:
+        print("=> creating model '{}'".format(args.arch))
+        model = models.__dict__[args.arch]()
 
+    # reshape the model for the number of classes in the dataset
+    model = reshape_model(model, args.arch, num_classes)
+
+    # transfer the model to the GPU that it should be run on
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
         # should always set the single device scope, otherwise,
@@ -272,6 +288,8 @@ def main_worker(gpu, ngpus_per_node, args):
             save_checkpoint({
                 'epoch': epoch + 1,
                 'arch': args.arch,
+                'resolution': args.resolution,
+                'num_classes': num_classes,
                 'state_dict': model.state_dict(),
                 'best_acc1': best_acc1,
                 'optimizer' : optimizer.state_dict(),
@@ -296,7 +314,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     model.train()
 
     # get the start time
-    end = time.time()
+    epoch_start = time.time()
+    end = epoch_start
 
     # train over each image batch from the dataset
     for i, (images, target) in enumerate(train_loader):
@@ -328,6 +347,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         if i % args.print_freq == 0:
             progress.display(i)
+    
+    print("Epoch: [{:d}] completed, elapsed time {:6.3f} seconds".format(epoch, time.time() - epoch_start))
 
 
 #
@@ -380,13 +401,12 @@ def validate(val_loader, model, criterion, args):
 #
 # save model checkpoint
 #
-def save_checkpoint(state, is_best, args, filename='checkpoint.pth.tar'):
-
-    best_filename = 'model_best.pth.tar'
+def save_checkpoint(state, is_best, args, filename='checkpoint.pth.tar', best_filename='model_best.pth.tar'):
+    """Save a model checkpoint file, along with the best-performing model if applicable"""
 
     # if saving to an output directory, make sure it exists
-    if args.output_path:
-        model_path = os.path.expanduser(args.output_path)
+    if args.output_dir:
+        model_path = os.path.expanduser(args.output_dir)
 
         if not os.path.exists(model_path):
             os.mkdir(model_path)
@@ -403,67 +423,6 @@ def save_checkpoint(state, is_best, args, filename='checkpoint.pth.tar'):
         print("saved best model to:  " + best_filename)
     else:
         print("saved checkpoint to:  " + filename)
-
-#
-# load and reshape the model
-#
-def create_model(args, num_classes):
-	# if pre-trained model is requested, download it
-	if args.pretrained:
-		print("=> using pre-trained model '{}'".format(args.arch))
-		model = models.__dict__[args.arch](pretrained=True)
-	else:
-		print("=> creating model '{}'".format(args.arch))
-		model = models.__dict__[args.arch]()
-
-	# reshape output layers for the dataset
-	if args.arch.startswith("resnet"):
-		model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-		print("=> reshaped ResNet fully-connected layer with: " + str(model.fc))
-
-	elif args.arch.startswith("alexnet"):
-		model.classifier[6] = torch.nn.Linear(model.classifier[6].in_features, num_classes)
-		print("=> reshaped AlexNet classifier layer with: " + str(model.classifier[6]))
-
-	elif args.arch.startswith("vgg"):
-		model.classifier[6] = torch.nn.Linear(model.classifier[6].in_features, num_classes)
-		print("=> reshaped VGG classifier layer with: " + str(model.classifier[6]))
-
-	elif args.arch.startswith("squeezenet"):
-		model.classifier[1] = torch.nn.Conv2d(512, num_classes, kernel_size=(1,1), stride=(1,1))
-		model.num_classes = num_classes
-		print("=> reshaped SqueezeNet classifier layer with: " + str(model.classifier[1]))
-
-	elif args.arch.startswith("densenet"):
-		model.classifier = torch.nn.Linear(model.classifier.in_features, num_classes) 
-		print("=> reshaped DenseNet classifier layer with: " + str(model.classifier))
-
-	elif args.arch.startswith("inception"):
-		model.AuxLogits.fc = torch.nn.Linear(model.AuxLogits.fc.in_features, num_classes)
-		model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-
-		print("=> reshaped Inception aux-logits layer with: " + str(model.AuxLogits.fc))
-		print("=> reshaped Inception fully-connected layer with: " + str(model.fc))
-	
-	elif args.arch.startswith("googlenet"):
-		if model.aux_logits:
-			from torchvision.models.googlenet import InceptionAux
-
-			model.aux1 = InceptionAux(512, num_classes)
-			model.aux2 = InceptionAux(528, num_classes)
-
-			print("=> reshaped GoogleNet aux-logits layers with: ")
-			print("      " + str(model.aux1))
-			print("      " + str(model.aux2))
-	
-		model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-		print("=> reshaped GoogleNet fully-connected layer with:  " + str(model.fc))
-	
-	else:
-		print("classifier reshaping not supported for " + args.arch)
-		print("model will retain default of 1000 output classes")
-
-	return model
 
 
 #
