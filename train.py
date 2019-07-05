@@ -51,7 +51,7 @@ parser.add_argument('--resolution', default=224, type=int, metavar='N',
                          'note than Inception models should use 299x299')
 parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
                     help='number of data loading workers (default: 2)')
-parser.add_argument('--epochs', default=25, type=int, metavar='N',
+parser.add_argument('--epochs', default=35, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
