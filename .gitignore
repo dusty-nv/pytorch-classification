@@ -2,3 +2,5 @@
 *.pth.tar
 *.onnx
 *.engine
+cat_dog*
+plants*
