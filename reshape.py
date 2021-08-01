@@ -52,7 +52,7 @@ def reshape_model(model, arch, num_classes):
 		print("=> reshaped GoogleNet fully-connected layer with:  " + str(model.fc))
 	
 	else:
-		print("classifier reshaping not supported for " + args.arch)
+		print("classifier reshaping not supported for " + arch)
 		print("model will retain default of 1000 output classes")
 
 	return model
