@@ -11,6 +11,7 @@ import random
 import shutil
 import time
 import warnings
+import datetime
 
 import torch
 import torch.nn as nn
@@ -25,6 +26,8 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
+from torch.utils.tensorboard import SummaryWriter
+
 from reshape import reshape_model
 
 model_names = sorted(name for name in models.__dict__
@@ -38,7 +41,7 @@ parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
-parser.add_argument('--model-dir', type=str, default='', 
+parser.add_argument('--model-dir', type=str, default='models', 
 				help='path to desired output directory for saving model '
 					'checkpoints (default: current directory)')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
@@ -93,15 +96,20 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
 
+args = parser.parse_args()
+
+
+# variable for storing the best model accuracy so far
 best_acc1 = 0
+
+# open tensorboard logger (to model_dir/tensorboard)
+tensorboard = SummaryWriter(log_dir=os.path.join(args.model_dir, "tensorboard", f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"))
 
 
 #
 # initiate worker threads (if using distributed multi-GPU)
 #
 def main():
-    args = parser.parse_args()
-
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
@@ -262,7 +270,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # if in evaluation mode, only run validation
     if args.evaluate:
-        validate(val_loader, model, criterion, num_classes, args)
+        validate(val_loader, model, criterion, 0, num_classes, args)
         return
 
     # train for the specified number of epochs
@@ -277,7 +285,7 @@ def main_worker(gpu, ngpus_per_node, args):
         train(train_loader, model, criterion, optimizer, epoch, num_classes, args)
 
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion, num_classes, args)
+        acc1 = validate(val_loader, model, criterion, epoch, num_classes, args)
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -350,11 +358,14 @@ def train(train_loader, model, criterion, optimizer, epoch, num_classes, args):
     
     print("Epoch: [{:d}] completed, elapsed time {:6.3f} seconds".format(epoch, time.time() - epoch_start))
 
+    tensorboard.add_scalar('Loss/train', losses.avg, epoch)
+    tensorboard.add_scalar('Accuracy (top-1)/train', top1.avg, epoch)
+    tensorboard.add_scalar('Accuracy (top-5)/train', top5.avg, epoch)
 
 #
 # measure model performance across the val dataset
 #
-def validate(val_loader, model, criterion, num_classes, args):
+def validate(val_loader, model, criterion, epoch, num_classes, args):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
@@ -395,6 +406,10 @@ def validate(val_loader, model, criterion, num_classes, args):
         print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
               .format(top1=top1, top5=top5))
 
+    tensorboard.add_scalar('Loss/val', losses.avg, epoch)
+    tensorboard.add_scalar('Accuracy (top-1)/val', top1.avg, epoch)
+    tensorboard.add_scalar('Accuracy (top-5)/val', top5.avg, epoch)
+    
     return top1.avg
 
 
