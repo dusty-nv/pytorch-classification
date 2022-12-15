@@ -220,9 +220,9 @@ def main(args):
 
         print(f"=> Epoch {epoch}")
         print(f"  * Train Loss     {train_loss:.4e}")
-        print(f"  * Train Accuracy {train_acc:.2f}")
+        print(f"  * Train Accuracy {train_acc:.4f}")
         print(f"  * Val Loss       {val_loss:.4e}")
-        print(f"  * Val Accuracy   {val_acc:.2f}{'*' if is_best else ''}")
+        print(f"  * Val Accuracy   {val_acc:.4f}{'*' if is_best else ''}")
         
         save_checkpoint({
             'epoch': epoch,
@@ -245,7 +245,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
-    acc = AverageMeter('Accuracy', ':6.2f')
+    acc = AverageMeter('Accuracy', ':7.3f')
     
     progress = ProgressMeter(
         len(train_loader),
@@ -270,7 +270,6 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         # compute output
         output = model(images)
-        print(target.dtype)
         loss = criterion(output, target)
 
         # record loss and measure accuracy
@@ -303,7 +302,7 @@ def validate(val_loader, model, criterion, epoch):
     """
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
-    acc = AverageMeter('Accuracy', ':6.2f')
+    acc = AverageMeter('Accuracy', ':7.3f')
     
     progress = ProgressMeter(
         len(val_loader),
@@ -373,6 +372,36 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar', best_filename
         print(f"saved class labels to:  {labels_filename}")
             
 
+def adjust_learning_rate(optimizer, epoch):
+    """
+    Sets the learning rate to the initial LR decayed by 10 every 30 epochs
+    """
+    lr = args.lr * (0.1 ** (epoch // 30))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+
+def accuracy(output, target):
+    """
+    Computes the accuracy of predictions vs groundtruth
+    """
+    with torch.no_grad():
+        if args.multi_label:
+            output = F.sigmoid(output)
+            preds = ((output >= args.multi_label_threshold) == target.bool())   # https://medium.com/@yrodriguezmd/tackling-the-accuracy-multi-metric-9e2356f62513
+            
+            # https://stackoverflow.com/a/61585551
+            #output[output >= args.multi_label_threshold] = 1
+            #output[output < args.multi_label_threshold] = 0
+            #preds = (output == target)
+        else:
+            output = F.softmax(output, dim=-1)
+            _, preds = torch.max(output, dim=-1)
+            preds = (preds == target)
+            
+        return preds.float().mean().cpu().item() * 100.0
+        
+        
 class AverageMeter(object):
     """
     Computes and stores the average and current value
@@ -417,32 +446,6 @@ class ProgressMeter(object):
         num_digits = len(str(num_batches // 1))
         fmt = '{:' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
-
-
-def adjust_learning_rate(optimizer, epoch):
-    """
-    Sets the learning rate to the initial LR decayed by 10 every 30 epochs
-    """
-    lr = args.lr * (0.1 ** (epoch // 30))
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-
-
-def accuracy(output, target):
-    """
-    Computes the accuracy of predictions vs groundtruth
-    """
-    with torch.no_grad():
-        if args.multi_label:
-            # https://stackoverflow.com/a/61585551
-            output = F.sigmoid(output)
-            output[output >= args.multi_label_threshold] = 1
-            output[output < args.multi_label_threshold] = 0
-        else:
-            output = F.softmax(output, dim=-1)
-            _, output = torch.max(output, dim=-1)
-        
-        return (output == target).float().mean().cpu().item() * 100.0
 
 
 if __name__ == '__main__':

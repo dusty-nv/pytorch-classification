@@ -89,7 +89,7 @@ class NUSWideDataset(data.Dataset):
         imagelist = self.read_image_list()
         
         file = os.path.join(self.root, 'classification_labels', 'classification_' + self.set + '.csv')
-        print(f"=> reading {file}")
+        print(f"=> loading {file}")
         
         with open(file, 'r') as f:
             reader = csv.reader(f)
