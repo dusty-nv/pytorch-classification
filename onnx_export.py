@@ -1,6 +1,5 @@
-#
+#!/usr/bin/env python3
 # converts a saved PyTorch model to ONNX format
-# 
 import os
 import argparse
 

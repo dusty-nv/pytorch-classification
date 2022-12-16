@@ -1,24 +1,19 @@
-import csv
+#!/usr/bin/env python3
 import os
-import os.path
-import tarfile
-import torch.utils.data as data
-from urllib.parse import urlparse
-
-import numpy as np
-import torch
-from PIL import Image
-import pickle
+import csv
 import glob
-from collections import defaultdict
+
+import torch
+import numpy as np
+
+from PIL import Image
 
 
-
-class NUSWideDataset(data.Dataset):
+class NUSWideDataset(torch.utils.data.Dataset):
     """
     Dataloader for NUS-WIDE multi-label classification dataset
+    https://lms.comp.nus.edu.sg/wp-content/uploads/2019/research/nuswide/NUS-WIDE.html
     
-    TODO:  should -1 labels be 0?
     TODO:  support custom labels and class culling
     """
     def __init__(self, root, set, transform=None, target_transform=None):
@@ -146,7 +141,7 @@ if __name__ == "__main__":
     
     # get the class distributions
     if args.distribution:
-        print("[dataset] computing class distributions:")
+        print("=> computing class distributions:")
         
         distribution = dataset.get_class_distribution()
         total_labels = 0
@@ -155,5 +150,5 @@ if __name__ == "__main__":
             print(f"  class {n} {dataset.classes[n]} - {count}")
             total_labels += count
             
-        print(f"[dataset] NUS-WIDE classification set={dataset.set} classes={len(dataset.classes)} images={len(dataset.images)} labels={total_labels}")
+        print(f"=> NUS-WIDE classification set={dataset.set} classes={len(dataset.classes)} images={len(dataset.images)} labels={total_labels}")
         

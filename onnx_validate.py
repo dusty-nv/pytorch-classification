@@ -1,4 +1,5 @@
-# 
+#!/usr/bin/env python3
+#
 # Check that an ONNX model is valid and well-formed.
 #
 # Before running this script, install the following:
