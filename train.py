@@ -9,8 +9,9 @@
 import argparse
 import os
 import random
-import shutil
+
 import time
+import shutil
 import warnings
 import datetime
 
@@ -27,8 +28,9 @@ import torchvision.models as models
 
 from torch.utils.tensorboard import SummaryWriter
 
-from reshape import reshape_model
+from voc import VOCDataset
 from nuswide import NUSWideDataset
+from reshape import reshape_model
 
 
 # get the available network architectures
@@ -43,7 +45,7 @@ parser = argparse.ArgumentParser(description='PyTorch Image Classifier Training'
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('--dataset-type', type=str, default='folder',
-                    choices=['folder', 'nuswide'],
+                    choices=['folder', 'nuswide', 'voc'],
                     help='specify the dataset type (default: folder)')
 parser.add_argument('--multi-label', action='store_true',
                     help='multi-label model (aka image tagging)')
@@ -141,8 +143,12 @@ def main(args):
     elif args.dataset_type == 'nuswide':
         train_dataset = NUSWideDataset(args.data, 'trainval', train_transforms)
         val_dataset = NUSWideDataset(args.data, 'test', val_transforms)
-        if not args.multi_label:
-            raise ValueError("--dataset-type=nuswide should be run with --multi-label")
+    elif args.dataset_type == 'voc':
+        train_dataset = VOCDataset(args.data, 'trainval', train_transforms)
+        val_dataset = VOCDataset(args.data, 'val', val_transforms)
+    
+    if (args.dataset_type == 'nuswide' or args.dataset_type == 'voc') and (not args.multi_label):
+        raise ValueError("nuswide or voc datasets should be run with --multi-label")
         
     print(f"=> dataset classes:  {len(train_dataset.classes)}  {train_dataset.classes}")
 
