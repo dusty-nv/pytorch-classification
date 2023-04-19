@@ -30,6 +30,14 @@ def reshape_model(model, arch, num_classes):
 		model.classifier = torch.nn.Linear(model.classifier.in_features, num_classes) 
 		print("=> reshaped DenseNet classifier layer with: " + str(model.classifier))
 
+	elif arch.startswith("efficientnet"):
+		model.classifier[1] = torch.nn.Linear(model.classifier[1].in_features, num_classes)
+		print(f"=> reshaped {arch} classifier layer with: " + str(model.classifier[1]))
+      
+	elif arch.startswith("mobilenet"):
+		model.classifier[-1] = torch.nn.Linear(model.classifier[-1].in_features, num_classes)
+		print(f"=> reshaped {arch} classifier layer with: " + str(model.classifier[-1]))
+        
 	elif arch.startswith("inception"):
 		model.AuxLogits.fc = torch.nn.Linear(model.AuxLogits.fc.in_features, num_classes)
 		model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
@@ -50,10 +58,9 @@ def reshape_model(model, arch, num_classes):
 	
 		model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
 		print("=> reshaped GoogleNet fully-connected layer with:  " + str(model.fc))
-	
+        
 	else:
-		print("classifier reshaping not supported for " + args.arch)
-		print("model will retain default of 1000 output classes")
+		raise ValueError(f"classifier reshaping not supported for {arch}")
 
 	return model
 
