@@ -193,9 +193,9 @@ def main(args):
             print(f"=> loading checkpoint '{args.resume}'")
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch'] + 1
-            best_accuracy = checkpoint['best_accuracy']
-            if args.gpu is not None:
-                best_accuracy = best_accuracy.to(args.gpu)   # best_accuracy may be from a checkpoint from a different GPU
+            #best_accuracy = checkpoint['best_accuracy']
+            #if args.gpu is not None:
+            #    best_accuracy = best_accuracy.to(args.gpu)   # best_accuracy may be from a checkpoint from a different GPU
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
